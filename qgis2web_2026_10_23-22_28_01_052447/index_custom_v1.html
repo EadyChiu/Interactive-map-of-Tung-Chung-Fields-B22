@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>東涌田野照片互動地圖 — Custom View</title>
+
+    <!-- Existing CSS from qgis2web output -->
+    <link rel="stylesheet" href="css/leaflet.css">
+    <link rel="stylesheet" href="css/MarkerCluster.css">
+    <link rel="stylesheet" href="css/MarkerCluster.Default.css">
+    <link rel="stylesheet" href="css/qgis2web.css">
+    <link rel="stylesheet" href="css/fontawesome-all.min.css">
+
+    <style>
+        /* ====== Reset & Base ====== */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "LiHei Pro", "Microsoft JhengHei", "PingFang TC", "Helvetica Neue", Arial, sans-serif;
+            font-size: 14px;
+            color: #333;
+            background: #f5f5f5;
+        }
+
+        /* ====== App Layout ====== */
+        #app {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            flex-direction: row;
+        }
+
+        #sidebar-left {
+            width: 280px;
+            min-width: 200px;
+            max-width: 320px;
+            height: 100%;
+            background: #fff;
+            border-right: 1px solid #ddd;
+            overflow-y: auto;
+            overflow-x: hidden;
+            z-index: 1000;
+            flex-shrink: 0;
+        }
+
+        #map-container {
+            flex: 1;
+            height: 100%;
+            position: relative;
+            min-width: 0;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        #sidebar-right {
+            width: 380px;
+            min-width: 280px;
+            max-width: 500px;
+            height: 100%;
+            background: #fff;
+            border-left: 1px solid #ddd;
+            overflow-y: auto;
+            overflow-x: hidden;
+            z-index: 1000;
+            flex-shrink: 0;
+        }
+
+        /* ====== Sidebar Header ====== */
+        .sidebar-header {
+            padding: 14px 16px 10px;
+            background: #2c3e50;
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .sidebar-header .subtitle {
+            font-size: 11px;
+            font-weight: 400;
+            opacity: 0.8;
+            margin-top: 2px;
+        }
+
+        /* ====== Filter Section ====== */
+        .filter-section {
+            padding: 10px 16px;
+            border-bottom: 1px solid #eee;
+        }
+        .filter-section h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #7f8c8d;
+            margin-bottom: 8px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .filter-section h3 .toggle-icon {
+            font-size: 10px;
+            margin-left: auto;
+            transition: transform 0.2s;
+        }
+        .filter-section.collapsed h3 .toggle-icon {
+            transform: rotate(-90deg);
+        }
+        .filter-section.collapsed .filter-body {
+            display: none;
+        }
+        .filter-body {
+            max-height: 220px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        .filter-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 4px 0;
+            gap: 8px;
+            cursor: pointer;
+        }
+        .filter-item input[type="checkbox"] {
+            margin-top: 3px;
+            flex-shrink: 0;
+        }
+        .filter-item label {
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1.4;
+            word-break: break-word;
+            flex: 1;
+        }
+        .filter-item .count {
+            font-size: 11px;
+            color: #999;
+            margin-left: 4px;
+            flex-shrink: 0;
+        }
+
+        /* ====== Filter Controls ====== */
+        .filter-controls {
+            display: flex;
+            gap: 8px;
+            padding: 8px 16px;
+            border-bottom: 1px solid #eee;
+        }
+        .filter-controls button {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid #3498db;
+            background: #fff;
+            color: #3498db;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.15s;
+        }
+        .filter-controls button:hover {
+            background: #3498db;
+            color: #fff;
+        }
+
+        /* ====== Record Count ====== */
+        .record-count {
+            padding: 8px 16px;
+            font-size: 12px;
+            color: #555;
+            background: #ecf0f1;
+            border-bottom: 1px solid #ddd;
+        }
+        .record-count strong {
+            color: #2c3e50;
+        }
+
+        /* ====== Right Sidebar - Detail Panel ====== */
+        .detail-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            padding: 24px;
+            color: #95a5a6;
+            text-align: center;
+        }
+        .detail-placeholder .icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+        .detail-placeholder p {
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .detail-header {
+            padding: 14px 16px 10px;
+            background: #2c3e50;
+            color: #fff;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .detail-header .photo-id {
+            font-size: 12px;
+            opacity: 0.7;
+        }
+        .detail-header h2 {
+            font-size: 16px;
+            margin-top: 2px;
+        }
+
+        .detail-photo {
+            padding: 12px 16px;
+            text-align: center;
+        }
+        .detail-photo img {
+            max-width: 100%;
+            max-height: 320px;
+            border-radius: 6px;
+            border: 2px solid #3498db;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .detail-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .detail-table th {
+            text-align: right;
+            padding: 5px 10px;
+            width: 35%;
+            background: #f8f9fa;
+            color: #555;
+            font-weight: 600;
+            border-bottom: 1px solid #e0e0e0;
+            vertical-align: top;
+        }
+        .detail-table td {
+            padding: 5px 10px;
+            border-bottom: 1px solid #e0e0e0;
+            word-break: break-word;
+            vertical-align: top;
+        }
+        .detail-table td.empty {
+            color: #bbb;
+            font-style: italic;
+        }
+
+        /* ====== Selected marker highlight ====== */
+        .selected-marker {
+            filter: drop-shadow(0 0 8px #e74c3c) drop-shadow(0 0 4px #e74c3c);
+        }
+        .leaflet-marker-icon.selected-marker-icon {
+            z-index: 9999 !important;
+        }
+
+        /* ====== Mobile Toggle Button ====== */
+        .panel-toggle {
+            display: none;
+            position: fixed;
+            top: 10px;
+            z-index: 2000;
+            background: #2c3e50;
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            font-size: 18px;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* ====== Mobile Backdrop ====== */
+        .backdrop {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.3);
+            z-index: 999;
+        }
+
+        /* ====== Responsive: Tablet ====== */
+        @media (max-width: 1024px) {
+            #sidebar-left {
+                width: 240px;
+                min-width: 180px;
+            }
+            #sidebar-right {
+                width: 320px;
+                min-width: 240px;
+            }
+        }
+
+        /* ====== Responsive: Mobile ====== */
+        @media (max-width: 768px) {
+            #app {
+                flex-direction: column;
+            }
+            #sidebar-left {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 85%;
+                max-width: 320px;
+                height: 100%;
+                transform: translateX(-100%);
+                transition: transform 0.25s ease;
+                box-shadow: 2px 0 8px rgba(0,0,0,0.2);
+            }
+            #sidebar-left.open {
+                transform: translateX(0);
+            }
+            #sidebar-right {
+                position: fixed;
+                top: 0;
+                right: 0;
+                width: 85%;
+                max-width: 380px;
+                height: 100%;
+                transform: translateX(100%);
+                transition: transform 0.25s ease;
+                box-shadow: -2px 0 8px rgba(0,0,0,0.2);
+            }
+            #sidebar-right.open {
+                transform: translateX(0);
+            }
+            #map-container {
+                width: 100%;
+                height: 100%;
+            }
+            #map {
+                width: 100%;
+                height: 100%;
+            }
+            .panel-toggle {
+                display: flex;
+            }
+            #toggle-left {
+                left: 10px;
+            }
+            #toggle-right {
+                right: 10px;
+            }
+            .backdrop.show {
+                display: block;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Left sidebar: Filters -->
+        <div id="sidebar-left">
+            <div class="sidebar-header">
+                篩選條件 Filters
+                <div class="subtitle">東涌田野照片資料庫</div>
+            </div>
+            <div id="filters-container"></div>
+            <div class="filter-controls">
+                <button id="select-all-btn">全選 Select All</button>
+                <button id="clear-btn">清除 Clear</button>
+            </div>
+            <div class="record-count">
+                顯示記錄：<strong id="record-count">0</strong> / <span id="total-count">0</span>
+            </div>
+        </div>
+
+        <!-- Center: Map -->
+        <div id="map-container">
+            <button class="panel-toggle" id="toggle-left">&#9776;</button>
+            <button class="panel-toggle" id="toggle-right">&#9776;</button>
+            <div class="backdrop" id="backdrop"></div>
+            <div id="map"></div>
+        </div>
+
+        <!-- Right sidebar: Photo + Metadata -->
+        <div id="sidebar-right">
+            <div id="detail-panel">
+                <div class="detail-placeholder">
+                    <div class="icon">&#128247;</div>
+                    <p>點擊地圖上的照片標記<br>以查看照片及完整 metadata</p>
+                    <p style="font-size:11px;margin-top:8px;opacity:0.6;">Click a photo marker on the map<br>to view photo &amp; full metadata</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Existing JS from qgis2web output -->
+    <script src="js/leaflet.js"></script>
+    <script src="js/leaflet.markercluster.js"></script>
+    <script src="js/Autolinker.min.js"></script>
+
+    <!-- Data files (read-only, not modified) -->
+    <script src="data/Subject_Location_1.js"></script>
+    <script src="data/Camera_Location_2.js"></script>
+
+    <script>
+    (function() {
+        'use strict';
+
+        // ========== Data source: directly from window globals ==========
+        var subjectFeatures = window.json_Subject_Location_1.features;
+        var cameraFeatures = window.json_Camera_Location_2.features;
+
+        // All features combined for display
+        var allFeatures = subjectFeatures.concat(cameraFeatures);
+
+        // Track which features are currently shown
+        var currentFeatureIds = [];
+        var selectedFeatureIdx = -1;
+
+        // Map state
+        var map = L.map('map', {
+            zoomControl: true,
+            maxZoom: 28,
+            minZoom: 1
+        });
+
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+
+        // ========== Raster base map (same as index.html) ==========
+        map.createPane('pane_ClippedBaseMap_0');
+        map.getPane('pane_ClippedBaseMap_0').style.zIndex = 400;
+        var img_ClippedBaseMap_0 = 'data/ClippedBaseMap_0.png';
+        var img_bounds_ClippedBaseMap_0 = [[22.27200278519734,113.92608462619987],[22.283733114031307,113.94294870129073]];
+        var layer_ClippedBaseMap_0 = L.imageOverlay(img_ClippedBaseMap_0, img_bounds_ClippedBaseMap_0, {
+            pane: 'pane_ClippedBaseMap_0'
+        });
+        layer_ClippedBaseMap_0.addTo(map);
+
+        // Fit to raster bounds
+        map.fitBounds(img_bounds_ClippedBaseMap_0);
+
+        // ========== Marker clusters ==========
+        map.createPane('pane_markers');
+        map.getPane('pane_markers').style.zIndex = 450;
+
+        var markerCluster = L.markerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyDistanceMultiplier: 2,
+            maxClusterRadius: 40
+        });
+        markerCluster.addTo(map);
+
+        // Store marker references: array of {feature, marker, idx}
+        var markerData = [];
+
+        // ========== Photo path helper ==========
+        // The original index.html uses: String(feature.properties['Photo_Path']).replace(/[\\/:]/g, '_').trim()
+        // This converts the absolute path to the filename used in images/
+        function getPhotoFilename(photoPath) {
+            if (!photoPath) return null;
+            return String(photoPath).replace(/[\\/:]/g, '_').trim();
+        }
+
+        function getPhotoUrl(feature) {
+            var pp = feature.properties['Photo_Path'];
+            if (!pp) return null;
+            var filename = getPhotoFilename(pp);
+            return 'images/' + filename;
+        }
+
+        // ========== Create marker icon ==========
+        function createMarkerIcon(feature, isSelected) {
+            var isCamera = feature.properties['Point_Type'] === '相機位置';
+            var color = isCamera ? '#32d0d1' : '#e81468';
+            var photoUrl = getPhotoUrl(feature);
+            var hasPhoto = !!photoUrl;
+
+            var html = '';
+            var iconSize, iconAnchor;
+
+            if (hasPhoto) {
+                // Photo thumbnail marker
+                var borderColor = isSelected ? '#e74c3c' : color;
+                var borderW = isSelected ? 4 : 2;
+                var size = isSelected ? 44 : 36;
+                html = '<div style="' +
+                    'width:' + size + 'px;height:' + size + 'px;' +
+                    'border-radius:6px;' +
+                    'border:' + borderW + 'px solid ' + borderColor + ';' +
+                    'overflow:hidden;' +
+                    'box-shadow:0 2px 6px rgba(0,0,0,0.3);' +
+                    'background:' + color + ';' +
+                    (isSelected ? 'animation:pulse 1.5s infinite;' : '') +
+                    '">' +
+                    '<img src="' + photoUrl + '" style="width:100%;height:100%;object-fit:cover;" ' +
+                    'onerror="this.style.display=\'none\';this.parentElement.style.background=\'' + color + '\';" />' +
+                    '</div>';
+                iconSize = [size, size];
+                iconAnchor = [size/2, size/2];
+            } else {
+                // Circle marker for no-photo features (camera location)
+                var s = isSelected ? 28 : 20;
+                html = '<div style="' +
+                    'width:' + s + 'px;height:' + s + 'px;' +
+                    'border-radius:50%;' +
+                    'background:' + color + ';' +
+                    'border:3px solid ' + (isSelected ? '#e74c3c' : '#fff') + ';' +
+                    'box-shadow:0 2px 6px rgba(0,0,0,0.3);' +
+                    (isSelected ? 'animation:pulse 1.5s infinite;' : '') +
+                    '"></div>';
+                iconSize = [s, s];
+                iconAnchor = [s/2, s/2];
+            }
+
+            return L.divIcon({
+                html: html,
+                className: 'custom-marker' + (isSelected ? ' selected-marker-icon' : ''),
+                iconSize: iconSize,
+                iconAnchor: iconAnchor
+            });
+        }
+
+        // ========== Build all markers ==========
+        function buildMarkers(featuresToShow) {
+            markerCluster.clearLayers();
+            markerData = [];
+            currentFeatureIds = [];
+
+            featuresToShow.forEach(function(feature, displayIdx) {
+                var coords = feature.geometry.coordinates;
+                var latlng = [coords[1], coords[0]];
+                var icon = createMarkerIcon(feature, false);
+                var marker = L.marker(latlng, { icon: icon });
+
+                marker.on('click', function() {
+                    selectFeature(displayIdx);
+                });
+
+                markerCluster.addLayer(marker);
+                markerData.push({ feature: feature, marker: marker, displayIdx: displayIdx });
+                currentFeatureIds.push(displayIdx);
+            });
+
+            // Update record count
+            document.getElementById('record-count').textContent = featuresToShow.length;
+        }
+
+        // ========== Select a feature and show detail ==========
+        function selectFeature(displayIdx) {
+            // Deselect previous
+            if (selectedFeatureIdx >= 0 && markerData[selectedFeatureIdx]) {
+                var prev = markerData[selectedFeatureIdx];
+                prev.marker.setIcon(createMarkerIcon(prev.feature, false));
+            }
+
+            selectedFeatureIdx = displayIdx;
+            var data = markerData[displayIdx];
+            if (!data) return;
+
+            // Highlight selected marker
+            data.marker.setIcon(createMarkerIcon(data.feature, true));
+
+            // Show detail panel
+            showDetail(data.feature);
+
+            // On mobile, open right sidebar
+            if (window.innerWidth <= 768) {
+                document.getElementById('sidebar-right').classList.add('open');
+                document.getElementById('backdrop').classList.add('show');
+            }
+        }
+
+        // ========== Show detail in right sidebar ==========
+        function showDetail(feature) {
+            var props = feature.properties;
+            var photoUrl = getPhotoUrl(feature);
+            var pointType = props['Point_Type'] || '';
+            var photoId = props['照片流水號'] || props['Subject_Location_Name'] || '';
+            var name = props['Subject_Location_Name'] || '';
+
+            var html = '';
+
+            // Header
+            html += '<div class="detail-header">';
+            html += '<div class="photo-id">照片流水號: ' + escapeHtml(photoId) + ' &middot; ' + escapeHtml(pointType) + '</div>';
+            html += '<h2>' + escapeHtml(name) + '</h2>';
+            html += '</div>';
+
+            // Photo
+            if (photoUrl) {
+                html += '<div class="detail-photo">';
+                html += '<img src="' + photoUrl + '" alt="Photo ' + escapeHtml(photoId) + '" ' +
+                    'onerror="this.style.display=\'none\';this.parentElement.innerHTML=\'<div style=\\\'color:#e74c3c;font-size:12px;padding:12px\\\'>&#9888; 照片載入失敗 / Photo not found</div>\'" />';
+                html += '</div>';
+            }
+
+            // Metadata table - ALL fields
+            var fieldLabels = {
+                '照片流水號': '照片流水號 Photo Serial',
+                'Box_No.': 'Box No.',
+                '照片總編號': '照片總編號 Photo ID',
+                '指攝日期': '指攝日期 Date',
+                '底片編號': '底片編號 Film No.',
+                'Photo_Path': 'Photo Path',
+                'Subject_Location_Name': 'Subject Location Name',
+                'Point_Type': 'Point Type',
+                'Subject_Type': 'Subject Type',
+                'Longitude': 'Longitude',
+                'Latitude': 'Latitude',
+                'Location_Confidence': 'Location Confidence',
+                'Location_Source': 'Location Source',
+                'Location_Evidence': 'Location Evidence',
+                'Camera_Location': 'Camera Location',
+                'Camera_Direction': 'Camera Direction',
+                'Description': 'Description',
+                'Notes': 'Notes',
+                '拍攝者': '拍攝者 Photographer',
+                '經手人': '經手人 Handler',
+                '整理日期': '整理日期 Processing Date'
+            };
+
+            // Show Photo_Path as the raw value
+            var fieldOrder = [
+                '照片流水號', 'Box_No.', '照片總編號', '指攝日期', '底片編號',
+                'Photo_Path',
+                'Subject_Location_Name', 'Point_Type', 'Subject_Type',
+                'Longitude', 'Latitude',
+                'Location_Confidence', 'Location_Source', 'Location_Evidence',
+                'Camera_Location', 'Camera_Direction',
+                'Description', 'Notes',
+                '拍攝者', '經手人', '整理日期'
+            ];
+
+            html += '<table class="detail-table">';
+            for (var i = 0; i < fieldOrder.length; i++) {
+                var key = fieldOrder[i];
+                var label = fieldLabels[key] || key;
+                var val = props[key];
+
+                html += '<tr>';
+                html += '<th>' + escapeHtml(label) + '</th>';
+                if (val === null || val === undefined || val === '') {
+                    html += '<td class="empty">—</td>';
+                } else {
+                    var displayVal = String(val);
+                    // Autolinker for URLs in Description/Notes/Evidence
+                    if (key === 'Description' || key === 'Notes' || key === 'Location_Evidence' || key === 'Location_Source') {
+                        displayVal = autolinker.link(displayVal);
+                    }
+                    html += '<td>' + displayVal + '</td>';
+                }
+                html += '</tr>';
+            }
+            html += '</table>';
+
+            document.getElementById('detail-panel').innerHTML = html;
+        }
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // ========== Build filters dynamically ==========
+        var filterFields = [
+            'Point_Type',
+            'Subject_Type',
+            'Location_Confidence',
+            'Subject_Location_Name'
+        ];
+
+        var filterState = {}; // { field: Set of selected values }
+
+        function getUniqueValues(field) {
+            var vals = {};
+            allFeatures.forEach(function(f) {
+                var v = f.properties[field];
+                if (v !== null && v !== undefined && v !== '') {
+                    vals[v] = (vals[v] || 0) + 1;
+                }
+            });
+            return Object.keys(vals).map(function(k) {
+                return { value: k, count: vals[k] };
+            }).sort(function(a, b) {
+                return a.value.localeCompare(b.value, 'zh-Hant');
+            });
+        }
+
+        function buildFilters() {
+            var container = document.getElementById('filters-container');
+            container.innerHTML = '';
+
+            filterFields.forEach(function(field) {
+                var values = getUniqueValues(field);
+                if (values.length === 0) return;
+
+                filterState[field] = new Set(values.map(function(v) { return v.value; }));
+
+                var section = document.createElement('div');
+                section.className = 'filter-section';
+                section.dataset.field = field;
+
+                var h3 = document.createElement('h3');
+                h3.innerHTML = escapeHtml(field) + ' <span class="toggle-icon">&#9660;</span>';
+                h3.onclick = function() {
+                    section.classList.toggle('collapsed');
+                };
+
+                var body = document.createElement('div');
+                body.className = 'filter-body';
+
+                values.forEach(function(item) {
+                    var wrap = document.createElement('div');
+                    wrap.className = 'filter-item';
+
+                    var cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.id = 'filter-' + field + '-' + item.value.replace(/[^a-zA-Z0-9]/g, '_');
+                    cb.checked = true;
+                    cb.dataset.field = field;
+                    cb.dataset.value = item.value;
+
+                    cb.addEventListener('change', function() {
+                        if (this.checked) {
+                            filterState[field].add(this.dataset.value);
+                        } else {
+                            filterState[field].delete(this.dataset.value);
+                        }
+                        applyFilters();
+                    });
+
+                    var label = document.createElement('label');
+                    label.htmlFor = cb.id;
+                    label.textContent = item.value;
+
+                    var countSpan = document.createElement('span');
+                    countSpan.className = 'count';
+                    countSpan.textContent = '(' + item.count + ')';
+
+                    wrap.appendChild(cb);
+                    wrap.appendChild(label);
+                    wrap.appendChild(countSpan);
+                    body.appendChild(wrap);
+                });
+
+                section.appendChild(h3);
+                section.appendChild(body);
+                container.appendChild(section);
+            });
+        }
+
+        // ========== Apply filters ==========
+        function applyFilters() {
+            var filtered = allFeatures.filter(function(f) {
+                var passes = true;
+                for (var i = 0; i < filterFields.length; i++) {
+                    var field = filterFields[i];
+                    var val = f.properties[field];
+                    if (val === null || val === undefined || val === '') {
+                        // If the feature has no value for this field, only pass if we have no filters active
+                        // Actually: if all values are checked, it passes; if the field is empty, skip
+                        continue;
+                    }
+                    var selected = filterState[field];
+                    if (selected && !selected.has(String(val))) {
+                        passes = false;
+                        break;
+                    }
+                }
+                return passes;
+            });
+
+            buildMarkers(filtered);
+            selectedFeatureIdx = -1;
+
+            // Reset detail panel
+            document.getElementById('detail-panel').innerHTML =
+                '<div class="detail-placeholder">' +
+                '<div class="icon">&#128247;</div>' +
+                '<p>點擊地圖上的照片標記<br>以查看照片及完整 metadata</p>' +
+                '<p style="font-size:11px;margin-top:8px;opacity:0.6;">Click a photo marker on the map<br>to view photo &amp; full metadata</p>' +
+                '</div>';
+
+            // Fit bounds to filtered markers if any
+            if (filtered.length > 0) {
+                var bounds = L.latLngBounds([]);
+                filtered.forEach(function(f) {
+                    var c = f.geometry.coordinates;
+                    bounds.extend([c[1], c[0]]);
+                });
+                // Include raster bounds too
+                bounds.extend(img_bounds_ClippedBaseMap_0);
+                map.fitBounds(bounds, { padding: [20, 20] });
+            } else {
+                map.fitBounds(img_bounds_ClippedBaseMap_0);
+            }
+        }
+
+        // ========== Select All / Clear ==========
+        document.getElementById('select-all-btn').addEventListener('click', function() {
+            filterFields.forEach(function(field) {
+                if (filterState[field]) {
+                    var values = getUniqueValues(field);
+                    values.forEach(function(v) {
+                        filterState[field].add(v.value);
+                    });
+                }
+            });
+            // Update checkboxes
+            document.querySelectorAll('#filters-container input[type="checkbox"]').forEach(function(cb) {
+                cb.checked = true;
+            });
+            applyFilters();
+        });
+
+        document.getElementById('clear-btn').addEventListener('click', function() {
+            filterFields.forEach(function(field) {
+                if (filterState[field]) {
+                    filterState[field].clear();
+                }
+            });
+            // Update checkboxes
+            document.querySelectorAll('#filters-container input[type="checkbox"]').forEach(function(cb) {
+                cb.checked = false;
+            });
+            applyFilters();
+        });
+
+        // ========== Mobile panel toggles ==========
+        document.getElementById('toggle-left').addEventListener('click', function() {
+            var left = document.getElementById('sidebar-left');
+            var right = document.getElementById('sidebar-right');
+            right.classList.remove('open');
+            left.classList.toggle('open');
+            document.getElementById('backdrop').classList.toggle('show', left.classList.contains('open'));
+        });
+
+        document.getElementById('toggle-right').addEventListener('click', function() {
+            var left = document.getElementById('sidebar-left');
+            var right = document.getElementById('sidebar-right');
+            left.classList.remove('open');
+            right.classList.toggle('open');
+            document.getElementById('backdrop').classList.toggle('show', right.classList.contains('open'));
+        });
+
+        document.getElementById('backdrop').addEventListener('click', function() {
+            document.getElementById('sidebar-left').classList.remove('open');
+            document.getElementById('sidebar-right').classList.remove('open');
+            this.classList.remove('show');
+        });
+
+        // ========== Initialize ==========
+        document.getElementById('total-count').textContent = allFeatures.length;
+        buildFilters();
+        applyFilters();
+
+        // Add pulse animation keyframes
+        var style = document.createElement('style');
+        style.textContent = '@keyframes pulse {0%,100%{box-shadow:0 2px 6px rgba(0,0,0,0.3),0 0 0 0 rgba(231,76,60,0.4);}50%{box-shadow:0 2px 6px rgba(0,0,0,0.3),0 0 0 8px rgba(231,76,60,0);}}';
+        document.head.appendChild(style);
+
+        // Fix map size after layout
+        setTimeout(function() { map.invalidateSize(); }, 100);
+        window.addEventListener('resize', function() { map.invalidateSize(); });
+
+    })();
+    </script>
+</body>
+</html>
